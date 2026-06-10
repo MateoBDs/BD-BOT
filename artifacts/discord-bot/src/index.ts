@@ -166,6 +166,47 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
 
+  // 🔄 RESTOCK (solo administradores)
+  if (msg.startsWith('!restock ')) {
+    const member = message.member;
+    if (!member?.permissions.has('Administrator')) {
+      return void message.reply('❌ Solo el staff puede usar este comando.');
+    }
+
+    const partes = msg.slice(9).trim().split(' ');
+    const cantidadStr = partes.pop();
+    const itemName = partes.join(' ');
+    const cantidad = parseInt(cantidadStr ?? '', 10);
+
+    if (!itemName || isNaN(cantidad) || cantidad <= 0) {
+      return void message.reply('❌ Uso correcto: `!restock <producto> <cantidad>`\nEjemplo: `!restock Web Pro 5`');
+    }
+
+    if (!stock[itemName]) {
+      return void message.reply(`❌ Producto no encontrado. Productos disponibles:\n${Object.keys(stock).map(n => `\`${n}\``).join(', ')}`);
+    }
+
+    stock[itemName].unidades += cantidad;
+    stock[itemName].ultimoRestock = Math.floor(Date.now() / 1000);
+
+    const item = stock[itemName];
+    const embed = new EmbedBuilder()
+      .setTitle('🔄 Restock realizado')
+      .setDescription(`El stock de **${item.emoji} ${itemName}** ha sido actualizado.`)
+      .addFields(
+        { name: '📦 Unidades añadidas', value: `\`+${cantidad}\``, inline: true },
+        { name: '📦 Stock total', value: `\`${item.unidades} unidades\``, inline: true },
+        { name: '🔄 Restock por', value: `<@${message.author.id}>`, inline: true },
+        { name: '🕐 Fecha', value: `<t:${item.ultimoRestock}:f>`, inline: false },
+      )
+      .setColor(0x57f287)
+      .setTimestamp()
+      .setFooter({ text: 'BD Services · Stock actualizado' });
+
+    return void message.reply({ embeds: [embed] });
+  }
+
+
   // 💰 COMPRAR
   if (msg.startsWith('!buy ')) {
     const itemName = msg.slice(5).trim();
