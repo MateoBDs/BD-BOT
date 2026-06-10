@@ -136,18 +136,20 @@ const tempTimers = new Map<string, NodeJS.Timeout>();
 // Rol Muted (se cachea al crearlo/encontrarlo)
 let mutedRole: Role | null = null;
 
-/** Parsea "30m", "2h", "1d" → milisegundos. Devuelve null si inválido. */
+/** Parsea "10s", "30m", "2h", "67d" → milisegundos. Devuelve null si inválido. */
 function parseTime(str: string): number | null {
-  const match = str.match(/^(\d+)(m|h|d)$/i);
+  const match = str.match(/^(\d+)(s|m|h|d)$/i);
   if (!match) return null;
   const val = parseInt(match[1]);
-  const unit: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
-  return val * (unit[match[2].toLowerCase()] ?? 0);
+  const unit: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  const ms = val * (unit[match[2].toLowerCase()] ?? 0);
+  return ms > 0 ? ms : null;
 }
 
-/** Formatea ms a texto legible: "30 minutos", "2 horas", "1 día" */
+/** Formatea ms a texto legible: "30 segundos", "5 minutos", "2 horas", "67 días" */
 function formatTime(ms: number): string {
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} minuto(s)`;
+  if (ms < 60_000)     return `${Math.round(ms / 1_000)} segundo(s)`;
+  if (ms < 3_600_000)  return `${Math.round(ms / 60_000)} minuto(s)`;
   if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)} hora(s)`;
   return `${Math.round(ms / 86_400_000)} día(s)`;
 }
