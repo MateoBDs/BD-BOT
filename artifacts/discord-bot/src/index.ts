@@ -9,11 +9,14 @@ import {
   ButtonStyle,
   EmbedBuilder,
   Events,
-  ThreadAutoArchiveDuration,
   ChannelType,
+  PermissionFlagsBits,
+  TextChannel,
 } from 'discord.js';
 
 const CLIENT_ID = '1513571324646391959';
+const STAFF_ROLE_ID = '1514355564455530526';
+
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
   console.error('❌ Falta la variable de entorno DISCORD_TOKEN');
@@ -56,6 +59,9 @@ const stock: Record<string, StockItem> = {
   },
 };
 
+// Rastrear tickets abiertos: channelId → userId
+const ticketsAbiertos = new Map<string, string>();
+
 function buildStockEmbed(): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('📦 BD » STOCK')
@@ -69,9 +75,7 @@ function buildStockEmbed(): EmbedBuilder {
       ? `<t:${item.ultimaVenta.timestamp}:f> · <@${item.ultimaVenta.userId}>`
       : '`Sin ventas aún`';
     const ultimoRestock = `<t:${item.ultimoRestock}:f>`;
-    const unidadesStr = item.unidades > 0
-      ? `\`${item.unidades}\``
-      : '`⚠️ Sin stock`';
+    const unidadesStr = item.unidades > 0 ? `\`${item.unidades}\`` : '`⚠️ Sin stock`';
 
     embed.addFields({
       name: `${item.emoji} ${nombre}`,
@@ -89,12 +93,65 @@ function buildStockEmbed(): EmbedBuilder {
 
 
 // =========================
+// 🎫 CREAR CANAL TICKET
+// =========================
+async function crearTicketCanal(opts: {
+  guild: NonNullable<TextChannel['guild']>;
+  userId: string;
+  username: string;
+  tipo: 'pedido' | 'reclamacion';
+  itemName: string;
+}): Promise<TextChannel | null> {
+  const { guild, userId, username, tipo, itemName } = opts;
+  const emoji = tipo === 'pedido' ? '🎫' : '🚨';
+  const prefix = tipo === 'pedido' ? 'pedido' : 'reclamo';
+  const channelName = `${prefix}-${username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 40);
+
+  try {
+    const channel = await guild.channels.create({
+      name: `${emoji}｜${channelName}`,
+      type: ChannelType.GuildText,
+      permissionOverwrites: [
+        {
+          id: guild.id,
+          deny: [PermissionFlagsBits.ViewChannel],
+        },
+        {
+          id: userId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+          ],
+        },
+        {
+          id: STAFF_ROLE_ID,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageChannels,
+          ],
+        },
+      ],
+    });
+
+    ticketsAbiertos.set(channel.id, userId);
+    return channel as TextChannel;
+  } catch (err) {
+    console.error('Error al crear canal:', err);
+    return null;
+  }
+}
+
+
+// =========================
 // 🔧 SLASH COMMANDS
 // =========================
 const commands = [
   new SlashCommandBuilder()
     .setName('reclamacion')
-    .setDescription('📩 Abre una reclamación sobre tu pedido')
+    .setDescription('🚨 Abre una reclamación sobre tu pedido')
     .addStringOption(opt =>
       opt
         .setName('producto')
@@ -111,12 +168,12 @@ const commands = [
 const rest = new REST().setToken(token);
 rest
   .put(Routes.applicationCommands(CLIENT_ID), { body: commands })
-  .then(() => console.log('✅ Slash commands registrados globalmente'))
+  .then(() => console.log('✅ Slash commands registrados'))
   .catch(console.error);
 
 
 // =========================
-// 🤖 CLIENTE DISCORD
+// 🤖 CLIENTE
 // =========================
 const client = new Client({
   intents: [
@@ -136,6 +193,7 @@ client.once(Events.ClientReady, () => {
 // =========================
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
+  if (!message.guild) return;
   const msg = message.content.trim();
 
 
@@ -166,7 +224,7 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
 
-  // 🔄 RESTOCK (solo administradores)
+  // 🔄 RESTOCK (solo admins)
   if (msg.startsWith('!restock ')) {
     const member = message.member;
     if (!member?.permissions.has('Administrator')) {
@@ -183,7 +241,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     if (!stock[itemName]) {
-      return void message.reply(`❌ Producto no encontrado. Productos disponibles:\n${Object.keys(stock).map(n => `\`${n}\``).join(', ')}`);
+      return void message.reply(`❌ Producto no encontrado. Disponibles:\n${Object.keys(stock).map(n => `\`${n}\``).join(', ')}`);
     }
 
     stock[itemName].unidades += cantidad;
@@ -207,7 +265,7 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
 
-  // 💰 COMPRAR
+  // 💰 COMPRAR → crea canal ticket
   if (msg.startsWith('!buy ')) {
     const itemName = msg.slice(5).trim();
 
@@ -226,63 +284,59 @@ client.on(Events.MessageCreate, async (message) => {
     };
 
     const item = stock[itemName];
+    const guild = message.guild;
 
-    const confirmEmbed = new EmbedBuilder()
-      .setTitle('🎫 Pedido registrado')
-      .setDescription(`Tu pedido ha sido abierto. Se ha creado un ticket a continuación.`)
+    const ticketChannel = await crearTicketCanal({
+      guild,
+      userId: message.author.id,
+      username: message.author.username,
+      tipo: 'pedido',
+      itemName,
+    });
+
+    if (!ticketChannel) {
+      // Revertir stock si no se pudo crear el canal
+      stock[itemName].unidades++;
+      stock[itemName].ultimaVenta = null;
+      return void message.reply('❌ No se pudo crear el ticket. Asegúrate de que el bot tiene permisos para gestionar canales.');
+    }
+
+    await message.reply(`✅ Tu pedido ha sido registrado. Canal creado: ${ticketChannel}`);
+
+    const ticketEmbed = new EmbedBuilder()
+      .setTitle('🎫 Nuevo Pedido — BD Services')
+      .setDescription(`Hola <@${message.author.id}>, gracias por tu compra.\nEl staff te atenderá en breve para gestionar la entrega.`)
       .addFields(
         { name: `${item.emoji} Producto`, value: `\`${itemName}\``, inline: true },
-        { name: '💰 Precio', value: `\`${item.precio}€\``, inline: true },
+        { name: '💰 Total', value: `\`${item.precio}€\``, inline: true },
         { name: '📦 Stock restante', value: `\`${item.unidades} unidades\``, inline: true },
+        { name: '🕐 Pedido el', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: false },
+        { name: '👤 Cliente', value: `<@${message.author.id}>`, inline: true },
       )
       .setColor(0x5865f2)
       .setTimestamp()
-      .setFooter({ text: 'BD Services · Ticket creado automáticamente' });
+      .setFooter({ text: 'BD Services · Sistema de tickets' });
 
-    const reply = await message.reply({ embeds: [confirmEmbed] });
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ticket_entregado:${itemName}:${message.author.id}`)
+        .setLabel('✅ Marcar entregado')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`ticket_cancelar:${itemName}:${message.author.id}`)
+        .setLabel('❌ Cancelar pedido')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`ticket_cerrar:${message.author.id}`)
+        .setLabel('🔒 Cerrar ticket')
+        .setStyle(ButtonStyle.Secondary),
+    );
 
-    // Crear hilo (ticket)
-    const channel = message.channel;
-    if (
-      channel.type === ChannelType.GuildText ||
-      channel.type === ChannelType.GuildAnnouncement
-    ) {
-      try {
-        const thread = await channel.threads.create({
-          name: `🎫 ${itemName} · ${message.author.username}`,
-          autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
-          startMessage: reply,
-          reason: `Pedido de ${message.author.tag}`,
-        });
-
-        const ticketEmbed = new EmbedBuilder()
-          .setTitle('📋 Ticket de Pedido')
-          .setDescription(`Hola <@${message.author.id}>, gracias por tu compra.\nEl staff se pondrá en contacto contigo para gestionar la entrega.`)
-          .addFields(
-            { name: `${item.emoji} Producto`, value: `\`${itemName}\``, inline: true },
-            { name: '💰 Total', value: `\`${item.precio}€\``, inline: true },
-            { name: '🕐 Pedido', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
-          )
-          .setColor(0xfee75c)
-          .setTimestamp()
-          .setFooter({ text: 'BD Services · Gestiona el pedido con los botones de abajo' });
-
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`pedido_entregado:${itemName}:${message.author.id}`)
-            .setLabel('✅ Marcar como entregado')
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`pedido_cancelar:${itemName}:${message.author.id}`)
-            .setLabel('❌ Cancelar pedido')
-            .setStyle(ButtonStyle.Danger),
-        );
-
-        await thread.send({ embeds: [ticketEmbed], components: [row] });
-      } catch (err) {
-        console.error('Error al crear hilo:', err);
-      }
-    }
+    await ticketChannel.send({
+      content: `<@${message.author.id}> | <@&${STAFF_ROLE_ID}>`,
+      embeds: [ticketEmbed],
+      components: [row],
+    });
 
     return;
   }
@@ -290,20 +344,38 @@ client.on(Events.MessageCreate, async (message) => {
 
 
 // =========================
-// 🎛️ INTERACCIONES (SLASH + BOTONES)
+// 🎛️ INTERACCIONES
 // =========================
 client.on(Events.InteractionCreate, async (interaction) => {
 
-  // /reclamacion
+  // /reclamacion → crea canal de reclamo
   if (interaction.isChatInputCommand() && interaction.commandName === 'reclamacion') {
+    if (!interaction.guild) return;
+
     const producto = interaction.options.getString('producto', true);
     const item = stock[producto];
 
+    const ticketChannel = await crearTicketCanal({
+      guild: interaction.guild,
+      userId: interaction.user.id,
+      username: interaction.user.username,
+      tipo: 'reclamacion',
+      itemName: producto,
+    });
+
+    if (!ticketChannel) {
+      return void interaction.reply({ content: '❌ No se pudo crear el canal de reclamación. El bot necesita permisos de gestionar canales.', ephemeral: true });
+    }
+
+    await interaction.reply({ content: `🚨 Canal de reclamación creado: ${ticketChannel}`, ephemeral: true });
+
     const embed = new EmbedBuilder()
-      .setTitle('📩 Nueva Reclamación')
-      .setDescription(`Hola <@${interaction.user.id}>, has abierto una reclamación para **${item.emoji} ${producto}**.`)
+      .setTitle('🚨 Reclamación — BD Services')
+      .setDescription(`Hola <@${interaction.user.id}>, has abierto una reclamación para **${item.emoji} ${producto}**.\nEl staff revisará tu caso.`)
       .addFields(
-        { name: '❓ Pregunta', value: '¿Recibiste el producto correctamente y se completó la compra?', inline: false },
+        { name: '❓ Motivo de reclamación', value: '¿Recibiste el producto? ¿Hubo algún problema? Explícalo aquí.' },
+        { name: '👤 Cliente', value: `<@${interaction.user.id}>`, inline: true },
+        { name: `${item.emoji} Producto`, value: `\`${producto}\``, inline: true },
       )
       .setColor(0xfee75c)
       .setTimestamp()
@@ -311,17 +383,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`rec_si:${producto}`)
-        .setLabel('✅ Sí, lo recibí')
+        .setCustomId(`rec_resuelto:${producto}:${interaction.user.id}`)
+        .setLabel('✅ Resuelto')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`rec_no:${producto}`)
-        .setLabel('❌ No lo recibí')
+        .setCustomId(`rec_reembolso:${producto}:${interaction.user.id}`)
+        .setLabel('🔄 Reembolso / Restaurar stock')
         .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`ticket_cerrar:${interaction.user.id}`)
+        .setLabel('🔒 Cerrar ticket')
+        .setStyle(ButtonStyle.Secondary),
     );
 
-    return void interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    await ticketChannel.send({
+      content: `<@${interaction.user.id}> | <@&${STAFF_ROLE_ID}>`,
+      embeds: [embed],
+      components: [row],
+    });
+
+    return;
   }
+
 
   // Botones
   if (interaction.isButton()) {
@@ -329,8 +412,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const accion = interaction.customId.slice(0, colonIdx);
     const resto = interaction.customId.slice(colonIdx + 1);
 
-    // --- Botones de ticket de pedido ---
-    if (accion === 'pedido_entregado') {
+    const isStaff = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+      || (interaction.member as any)?.roles?.cache?.has(STAFF_ROLE_ID);
+
+
+    // 🔒 Cerrar ticket (cualquier canal)
+    if (accion === 'ticket_cerrar') {
+      const closeEmbed = new EmbedBuilder()
+        .setTitle('🔒 Ticket cerrado')
+        .setDescription(`Ticket cerrado por <@${interaction.user.id}>.\nEste canal se eliminará en **5 segundos**.`)
+        .setColor(0x99aab5)
+        .setTimestamp();
+
+      await interaction.update({ embeds: [closeEmbed], components: [] });
+
+      setTimeout(async () => {
+        if (interaction.channel && interaction.channel.type === ChannelType.GuildText) {
+          await (interaction.channel as TextChannel).delete('Ticket cerrado').catch(() => {});
+        }
+      }, 5000);
+      return;
+    }
+
+
+    // ✅ Pedido entregado
+    if (accion === 'ticket_entregado') {
+      if (!isStaff) {
+        return void interaction.reply({ content: '❌ Solo el staff puede marcar pedidos como entregados.', ephemeral: true });
+      }
+
       const lastColon = resto.lastIndexOf(':');
       const itemName = resto.slice(0, lastColon);
       const userId = resto.slice(lastColon + 1);
@@ -338,21 +448,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setTitle('✅ Pedido entregado')
-        .setDescription(`El pedido de **${item?.emoji ?? ''} ${itemName}** para <@${userId}> ha sido marcado como **entregado**.`)
+        .setDescription(`El pedido de **${item?.emoji ?? ''} ${itemName}** para <@${userId}> ha sido marcado como **entregado** por <@${interaction.user.id}>.\nEste canal se eliminará en **5 segundos**.`)
         .setColor(0x57f287)
         .setTimestamp()
         .setFooter({ text: 'BD Services · Ticket cerrado' });
 
       await interaction.update({ embeds: [embed], components: [] });
 
-      // Archivar el hilo
-      if (interaction.channel?.isThread()) {
-        await interaction.channel.setArchived(true).catch(() => {});
-      }
+      setTimeout(async () => {
+        if (interaction.channel?.type === ChannelType.GuildText) {
+          await (interaction.channel as TextChannel).delete('Pedido entregado').catch(() => {});
+        }
+      }, 5000);
       return;
     }
 
-    if (accion === 'pedido_cancelar') {
+
+    // ❌ Cancelar pedido
+    if (accion === 'ticket_cancelar') {
+      if (!isStaff) {
+        return void interaction.reply({ content: '❌ Solo el staff puede cancelar pedidos.', ephemeral: true });
+      }
+
       const lastColon = resto.lastIndexOf(':');
       const itemName = resto.slice(0, lastColon);
       const userId = resto.slice(lastColon + 1);
@@ -365,51 +482,82 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setTitle('❌ Pedido cancelado')
-        .setDescription(`El pedido de **${item?.emoji ?? ''} ${itemName}** para <@${userId}> ha sido **cancelado**.\nEl stock ha sido restaurado automáticamente (\`${item?.unidades ?? '?'} unidades\`).`)
+        .setDescription(`El pedido de **${item?.emoji ?? ''} ${itemName}** para <@${userId}> ha sido **cancelado** por <@${interaction.user.id}>.\nStock restaurado: \`${item?.unidades ?? '?'} unidades\`.\nEste canal se eliminará en **5 segundos**.`)
         .setColor(0xed4245)
         .setTimestamp()
         .setFooter({ text: 'BD Services · Ticket cerrado' });
 
       await interaction.update({ embeds: [embed], components: [] });
 
-      if (interaction.channel?.isThread()) {
-        await interaction.channel.setArchived(true).catch(() => {});
-      }
+      setTimeout(async () => {
+        if (interaction.channel?.type === ChannelType.GuildText) {
+          await (interaction.channel as TextChannel).delete('Pedido cancelado').catch(() => {});
+        }
+      }, 5000);
       return;
     }
 
-    // --- Botones de reclamación ---
-    if (accion === 'rec_si') {
-      const producto = resto;
+
+    // ✅ Reclamación resuelta
+    if (accion === 'rec_resuelto') {
+      if (!isStaff) {
+        return void interaction.reply({ content: '❌ Solo el staff puede resolver reclamaciones.', ephemeral: true });
+      }
+
+      const lastColon = resto.lastIndexOf(':');
+      const producto = resto.slice(0, lastColon);
+      const userId = resto.slice(lastColon + 1);
+      const item = stock[producto];
+
       const embed = new EmbedBuilder()
-        .setTitle('✅ Reclamación cerrada')
-        .setDescription(`Gracias por confirmar. La compra de **${stock[producto]?.emoji ?? ''} ${producto}** ha sido marcada como **completada**.`)
+        .setTitle('✅ Reclamación resuelta')
+        .setDescription(`La reclamación de **${item?.emoji ?? ''} ${producto}** para <@${userId}> ha sido marcada como **resuelta** por <@${interaction.user.id}>.\nEste canal se eliminará en **5 segundos**.`)
         .setColor(0x57f287)
         .setTimestamp()
-        .setFooter({ text: 'BD Services · Reclamación resuelta' });
+        .setFooter({ text: 'BD Services · Reclamación cerrada' });
 
-      return void interaction.update({ embeds: [embed], components: [] });
+      await interaction.update({ embeds: [embed], components: [] });
+
+      setTimeout(async () => {
+        if (interaction.channel?.type === ChannelType.GuildText) {
+          await (interaction.channel as TextChannel).delete('Reclamación resuelta').catch(() => {});
+        }
+      }, 5000);
+      return;
     }
 
-    if (accion === 'rec_no') {
-      const producto = resto;
+
+    // 🔄 Reembolso / restaurar stock
+    if (accion === 'rec_reembolso') {
+      if (!isStaff) {
+        return void interaction.reply({ content: '❌ Solo el staff puede gestionar reembolsos.', ephemeral: true });
+      }
+
+      const lastColon = resto.lastIndexOf(':');
+      const producto = resto.slice(0, lastColon);
+      const userId = resto.slice(lastColon + 1);
       const item = stock[producto];
+
       if (item) {
         item.unidades++;
         item.ultimaVenta = null;
       }
 
       const embed = new EmbedBuilder()
-        .setTitle('🔄 Stock restaurado')
-        .setDescription(`Tu reclamación de **${item?.emoji ?? ''} ${producto}** ha sido registrada.\nEl stock ha sido **restaurado automáticamente** (\`${item?.unidades ?? '?'} unidades\`).`)
-        .addFields(
-          { name: '📞 Siguiente paso', value: 'Un miembro del staff se pondrá en contacto contigo pronto.' },
-        )
-        .setColor(0xed4245)
+        .setTitle('🔄 Reembolso procesado')
+        .setDescription(`El reembolso de **${item?.emoji ?? ''} ${producto}** para <@${userId}> ha sido procesado por <@${interaction.user.id}>.\nStock restaurado: \`${item?.unidades ?? '?'} unidades\`.\nEste canal se eliminará en **5 segundos**.`)
+        .setColor(0xfee75c)
         .setTimestamp()
-        .setFooter({ text: 'BD Services · Contacta al staff si necesitas más ayuda' });
+        .setFooter({ text: 'BD Services · Reclamación cerrada' });
 
-      return void interaction.update({ embeds: [embed], components: [] });
+      await interaction.update({ embeds: [embed], components: [] });
+
+      setTimeout(async () => {
+        if (interaction.channel?.type === ChannelType.GuildText) {
+          await (interaction.channel as TextChannel).delete('Reembolso procesado').catch(() => {});
+        }
+      }, 5000);
+      return;
     }
   }
 });
