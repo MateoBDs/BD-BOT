@@ -20,14 +20,6 @@ client.once('ready', () => {
 
 
 // =========================
-// 🧠 IA (BÁSICA / PLACEHOLDER)
-// =========================
-async function bdIA(prompt: string): Promise<string> {
-  return `🤖 BD IA: He recibido tu mensaje: "${prompt}"`;
-}
-
-
-// =========================
 // 🛍️ TIENDA BD
 // =========================
 const tienda = [
@@ -59,16 +51,6 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
   const msg = message.content;
-
-
-  // =========================
-  // 🤖 IA
-  // =========================
-  if (msg.startsWith('!ia ')) {
-    const prompt = msg.slice(4);
-    const respuesta = await bdIA(prompt);
-    return void message.reply(respuesta);
-  }
 
 
   // =========================
@@ -136,12 +118,7 @@ client.on('messageCreate', async (message) => {
   }
 
 
-  // =========================
-  // 🔥 PING
-  // =========================
-  if (msg === '!ping') {
-    return void message.reply('🏓 Pong!');
-  }
+
 });
 
 
