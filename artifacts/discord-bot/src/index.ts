@@ -9,6 +9,8 @@ import {
   ButtonStyle,
   EmbedBuilder,
   Events,
+  ThreadAutoArchiveDuration,
+  ChannelType,
 } from 'discord.js';
 
 const CLIENT_ID = '1513571324646391959';
@@ -182,18 +184,66 @@ client.on(Events.MessageCreate, async (message) => {
       userId: message.author.id,
     };
 
-    const embed = new EmbedBuilder()
-      .setTitle('✅ Compra registrada')
-      .setDescription(`Tu pedido de **${stock[itemName].emoji} ${itemName}** ha sido registrado correctamente.`)
-      .addFields(
-        { name: '💰 Total', value: `\`${stock[itemName].precio}€\``, inline: true },
-        { name: '📦 Stock restante', value: `\`${stock[itemName].unidades} unidades\``, inline: true },
-      )
-      .setColor(0x57f287)
-      .setTimestamp()
-      .setFooter({ text: 'BD Services · Contacta al staff para la entrega' });
+    const item = stock[itemName];
 
-    return void message.reply({ embeds: [embed] });
+    const confirmEmbed = new EmbedBuilder()
+      .setTitle('🎫 Pedido registrado')
+      .setDescription(`Tu pedido ha sido abierto. Se ha creado un ticket a continuación.`)
+      .addFields(
+        { name: `${item.emoji} Producto`, value: `\`${itemName}\``, inline: true },
+        { name: '💰 Precio', value: `\`${item.precio}€\``, inline: true },
+        { name: '📦 Stock restante', value: `\`${item.unidades} unidades\``, inline: true },
+      )
+      .setColor(0x5865f2)
+      .setTimestamp()
+      .setFooter({ text: 'BD Services · Ticket creado automáticamente' });
+
+    const reply = await message.reply({ embeds: [confirmEmbed] });
+
+    // Crear hilo (ticket)
+    const channel = message.channel;
+    if (
+      channel.type === ChannelType.GuildText ||
+      channel.type === ChannelType.GuildAnnouncement
+    ) {
+      try {
+        const thread = await channel.threads.create({
+          name: `🎫 ${itemName} · ${message.author.username}`,
+          autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
+          startMessage: reply,
+          reason: `Pedido de ${message.author.tag}`,
+        });
+
+        const ticketEmbed = new EmbedBuilder()
+          .setTitle('📋 Ticket de Pedido')
+          .setDescription(`Hola <@${message.author.id}>, gracias por tu compra.\nEl staff se pondrá en contacto contigo para gestionar la entrega.`)
+          .addFields(
+            { name: `${item.emoji} Producto`, value: `\`${itemName}\``, inline: true },
+            { name: '💰 Total', value: `\`${item.precio}€\``, inline: true },
+            { name: '🕐 Pedido', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
+          )
+          .setColor(0xfee75c)
+          .setTimestamp()
+          .setFooter({ text: 'BD Services · Gestiona el pedido con los botones de abajo' });
+
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`pedido_entregado:${itemName}:${message.author.id}`)
+            .setLabel('✅ Marcar como entregado')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`pedido_cancelar:${itemName}:${message.author.id}`)
+            .setLabel('❌ Cancelar pedido')
+            .setStyle(ButtonStyle.Danger),
+        );
+
+        await thread.send({ embeds: [ticketEmbed], components: [row] });
+      } catch (err) {
+        console.error('Error al crear hilo:', err);
+      }
+    }
+
+    return;
   }
 });
 
@@ -232,12 +282,64 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return void interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
   }
 
-  // Botones de reclamación
+  // Botones
   if (interaction.isButton()) {
-    const [accion, ...partes] = interaction.customId.split(':');
-    const producto = partes.join(':');
+    const colonIdx = interaction.customId.indexOf(':');
+    const accion = interaction.customId.slice(0, colonIdx);
+    const resto = interaction.customId.slice(colonIdx + 1);
 
+    // --- Botones de ticket de pedido ---
+    if (accion === 'pedido_entregado') {
+      const lastColon = resto.lastIndexOf(':');
+      const itemName = resto.slice(0, lastColon);
+      const userId = resto.slice(lastColon + 1);
+      const item = stock[itemName];
+
+      const embed = new EmbedBuilder()
+        .setTitle('✅ Pedido entregado')
+        .setDescription(`El pedido de **${item?.emoji ?? ''} ${itemName}** para <@${userId}> ha sido marcado como **entregado**.`)
+        .setColor(0x57f287)
+        .setTimestamp()
+        .setFooter({ text: 'BD Services · Ticket cerrado' });
+
+      await interaction.update({ embeds: [embed], components: [] });
+
+      // Archivar el hilo
+      if (interaction.channel?.isThread()) {
+        await interaction.channel.setArchived(true).catch(() => {});
+      }
+      return;
+    }
+
+    if (accion === 'pedido_cancelar') {
+      const lastColon = resto.lastIndexOf(':');
+      const itemName = resto.slice(0, lastColon);
+      const userId = resto.slice(lastColon + 1);
+      const item = stock[itemName];
+
+      if (item) {
+        item.unidades++;
+        item.ultimaVenta = null;
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle('❌ Pedido cancelado')
+        .setDescription(`El pedido de **${item?.emoji ?? ''} ${itemName}** para <@${userId}> ha sido **cancelado**.\nEl stock ha sido restaurado automáticamente (\`${item?.unidades ?? '?'} unidades\`).`)
+        .setColor(0xed4245)
+        .setTimestamp()
+        .setFooter({ text: 'BD Services · Ticket cerrado' });
+
+      await interaction.update({ embeds: [embed], components: [] });
+
+      if (interaction.channel?.isThread()) {
+        await interaction.channel.setArchived(true).catch(() => {});
+      }
+      return;
+    }
+
+    // --- Botones de reclamación ---
     if (accion === 'rec_si') {
+      const producto = resto;
       const embed = new EmbedBuilder()
         .setTitle('✅ Reclamación cerrada')
         .setDescription(`Gracias por confirmar. La compra de **${stock[producto]?.emoji ?? ''} ${producto}** ha sido marcada como **completada**.`)
@@ -249,6 +351,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (accion === 'rec_no') {
+      const producto = resto;
       const item = stock[producto];
       if (item) {
         item.unidades++;
@@ -257,7 +360,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setTitle('🔄 Stock restaurado')
-        .setDescription(`Tu reclamación de **${item?.emoji ?? ''} ${producto}** ha sido registrada.\nEl stock ha sido **restaurado automáticamente** (${item?.unidades ?? '?'} unidades disponibles).`)
+        .setDescription(`Tu reclamación de **${item?.emoji ?? ''} ${producto}** ha sido registrada.\nEl stock ha sido **restaurado automáticamente** (\`${item?.unidades ?? '?'} unidades\`).`)
         .addFields(
           { name: '📞 Siguiente paso', value: 'Un miembro del staff se pondrá en contacto contigo pronto.' },
         )
