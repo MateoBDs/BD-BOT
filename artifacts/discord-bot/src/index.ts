@@ -192,9 +192,11 @@ const commands = [
     .setDescription('📋 Postúlate para ser staff de BD Services'),
 ];
 
+const GUILD_ID = '1511755312162668815';
+
 const rest = new REST().setToken(token);
-rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands })
-  .then(() => console.log('✅ Slash commands registrados'))
+rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands })
+  .then(() => console.log('✅ Slash commands registrados (guild)'))
   .catch(console.error);
 
 
