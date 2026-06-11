@@ -592,6 +592,50 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ No se pudo mutear temporalmente al usuario.'); }
     return;
   }
+
+
+  // ─── .infracciones <user> ───
+  if (cmd === 'infracciones') {
+    const targetId = parseTargetId(args[0] ?? '');
+    if (!targetId) return void message.reply('❌ Uso: `.infracciones <@usuario>`');
+
+    let target;
+    try { target = await guild.members.fetch(targetId); } catch { return void message.reply('❌ No se encontró al usuario.'); }
+
+    const warnList  = warns.get(targetId) ?? [];
+    const mutedR    = await getOrCreateMutedRole(guild);
+    const esMuteado = target.roles.cache.has(mutedR.id);
+    const tempBan   = tempTimers.has(`ban_${targetId}`);
+    const tempMute  = tempTimers.has(`mute_${targetId}`);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📂 Historial de infracciones — ${target.user.tag}`)
+      .setThumbnail(target.user.displayAvatarURL())
+      .setColor(warnList.length === 0 && !esMuteado ? 0x57f287 : 0xfee75c)
+      .setTimestamp()
+      .setFooter({ text: 'BD Services · Moderación' });
+
+    // Estado actual
+    const estadoLineas: string[] = [];
+    estadoLineas.push(esMuteado  ? '🔇 **Muteado:** Sí' + (tempMute ? ' *(temporal)*' : '') : '🔊 **Muteado:** No');
+    estadoLineas.push(tempBan    ? '🔨 **Tempban activo:** Sí' : '✅ **Baneado:** No');
+    embed.addFields({ name: '📊 Estado actual', value: estadoLineas.join('\n') });
+
+    // Warns
+    if (warnList.length === 0) {
+      embed.addFields({ name: `⚠️ Advertencias (0)`, value: '✅ Sin advertencias registradas.' });
+    } else {
+      embed.addFields({ name: `⚠️ Advertencias (${warnList.length})`, value: '\u200b' });
+      warnList.slice(-5).forEach((w, i) => {
+        const realIdx = warnList.length > 5 ? warnList.length - 5 + i + 1 : i + 1;
+        embed.addFields({ name: `#${realIdx} · <t:${w.timestamp}:D>`, value: `📝 ${w.reason}\n👮 <@${w.staffId}>` });
+      });
+      if (warnList.length > 5) embed.addFields({ name: '\u200b', value: `*y ${warnList.length - 5} advertencia(s) más...*` });
+    }
+
+    await message.reply({ embeds: [embed] });
+    return;
+  }
 });
 
 
