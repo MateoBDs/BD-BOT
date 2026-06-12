@@ -1,2 +1,5 @@
 [build]
 cmds = ["pnpm install"]
+
+[start]
+cmd = "pnpm --filter @workspace/scripts run hello"
