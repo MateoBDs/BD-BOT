@@ -12,6 +12,8 @@ import {
   ChannelType,
   PermissionFlagsBits,
   TextChannel,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   ActivityType,
   GuildMember,
   Role,
@@ -204,9 +206,8 @@ async function setupModLogChannels(guild: Guild): Promise<void> {
 // ══════════════════════════════════════════
 // 🎫  CREAR CANAL TICKET
 // ══════════════════════════════════════════
-async function crearTicketCanal(opts: { guild: Guild; userId: string; username: string; tipo: 'pedido' | 'reclamacion' | 'postulacion'; }): Promise<TextChannel | null> {
-  const prefijos = { pedido: '🎫｜pedido', reclamacion: '🚨｜reclamo', postulacion: '📋｜postula' };
-  const channelName = `${prefijos[opts.tipo]}-${opts.username}`.toLowerCase().replace(/[^a-z0-9-｜]/g, '-').slice(0, 45);
+async function crearTicketCanal(opts: { guild: Guild; userId: string; username: string; tipo: string; }): Promise<TextChannel | null> {
+  const channelName = `ticket-${opts.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 45);
   try {
     const ch = await opts.guild.channels.create({
       name: channelName, type: ChannelType.GuildText,
@@ -241,9 +242,7 @@ function modEmbed(color: number, title: string, fields: { name: string; value: s
 // 🔧  SLASH COMMANDS
 // ══════════════════════════════════════════
 const slashCommands = [
-  new SlashCommandBuilder().setName('reclamacion').setDescription('🚨 Abre una reclamación sobre tu pedido')
-    .addStringOption(o => o.setName('producto').setDescription('Producto').setRequired(true)
-      .addChoices({ name: '🌐 Web Básica', value: 'Web Básica' }, { name: '💎 Web Pro', value: 'Web Pro' }, { name: '🤖 Bot Discord', value: 'Bot Discord' })),
+
   new SlashCommandBuilder().setName('postular').setDescription('📋 Postúlate para ser staff de BD Services'),
 ];
 
@@ -594,6 +593,34 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
 
+  // ─── .setup-tickets ───
+  if (cmd === 'setup-tickets') {
+    if (!isStaffMember(member)) return;
+    const channel = message.channel as TextChannel;
+    const embed = new EmbedBuilder()
+      .setTitle('🎫 Abrir Ticket')
+      .setDescription('Selecciona una categoría en el menú desplegable para abrir un ticket de soporte.')
+      .setColor(0x5865f2)
+      .setFooter({ text: 'BD Services · Sistema de Tickets' });
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('ticket_select')
+      .setPlaceholder('Selecciona una categoría...')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Soporte General').setEmoji('🆘').setValue('soporte'),
+        new StringSelectMenuOptionBuilder().setLabel('Reclamación').setEmoji('🚨').setValue('reclamacion'),
+        new StringSelectMenuOptionBuilder().setLabel('Compra').setEmoji('🛒').setValue('compra'),
+        new StringSelectMenuOptionBuilder().setLabel('Reportar Usuario').setEmoji('👤').setValue('reporte'),
+        new StringSelectMenuOptionBuilder().setLabel('Alianza').setEmoji('🤝').setValue('alianza'),
+        new StringSelectMenuOptionBuilder().setLabel('Apelación').setEmoji('⚖️').setValue('apelacion'),
+      );
+
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+    await channel.send({ embeds: [embed], components: [row] });
+    await message.delete().catch(() => {});
+    return;
+  }
+
   // ─── .infracciones <user> ───
   if (cmd === 'infracciones') {
     const targetId = parseTargetId(args[0] ?? '');
@@ -656,6 +683,57 @@ client.on(Events.MessageDelete, async (message) => {
 // ══════════════════════════════════════════
 client.on(Events.InteractionCreate, async (interaction) => {
 
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === 'ticket_select') {
+      const categoria = interaction.values[0];
+      const guild = interaction.guild;
+      if (!guild) return;
+
+      const ticketChannel = await crearTicketCanal({ 
+        guild, 
+        userId: interaction.user.id, 
+        username: interaction.user.username, 
+        tipo: categoria 
+      });
+
+      if (!ticketChannel) return void interaction.reply({ content: '❌ Error al crear el ticket.', ephemeral: true });
+
+      await interaction.reply({ content: `✅ Ticket creado: ${ticketChannel}`, ephemeral: true });
+
+      const nombres: Record<string, string> = {
+        soporte: '🆘 Soporte General',
+        reclamacion: '🚨 Reclamación',
+        compra: '🛒 Compra',
+        reporte: '👤 Reportar Usuario',
+        alianza: '🤝 Alianza',
+        apelacion: '⚖️ Apelación'
+      };
+
+      const embed = new EmbedBuilder()
+        .setTitle('🎫 Ticket Abierto')
+        .setColor(0x5865f2)
+        .addFields(
+          { name: '📂 Categoría', value: nombres[categoria] || categoria, inline: true },
+          { name: '👤 Usuario', value: `<@${interaction.user.id}>`, inline: true },
+          { name: '📅 Fecha', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
+        )
+        .setTimestamp()
+        .setFooter({ text: 'BD Services · Sistema de Tickets' });
+
+      if (categoria === 'compra') {
+        embed.setDescription('¡Hola! Si quieres realizar una compra, recuerda que puedes usar el comando `!buy`.');
+      }
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`ticket_cerrar:${interaction.user.id}`).setLabel('Cerrar Ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`ticket_transcript:${interaction.user.id}`).setLabel('Transcript').setEmoji('📄').setStyle(ButtonStyle.Secondary),
+      );
+
+      await ticketChannel.send({ content: `<@${interaction.user.id}> | <@&${STAFF_ROLE_ID}>`, embeds: [embed], components: [row] });
+      return;
+    }
+  }
+
   if (interaction.isChatInputCommand()) {
 
     if (interaction.commandName === 'postular') {
@@ -669,23 +747,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    if (interaction.commandName === 'reclamacion') {
-      if (!interaction.guild) return;
-      const producto = interaction.options.getString('producto', true);
-      const item = stock[producto];
-      const ticketChannel = await crearTicketCanal({ guild: interaction.guild, userId: interaction.user.id, username: interaction.user.username, tipo: 'reclamacion' });
-      if (!ticketChannel) return void interaction.reply({ content: '❌ El bot necesita Gestionar canales.', ephemeral: true });
-      await interaction.reply({ content: `🚨 Canal creado: ${ticketChannel}`, ephemeral: true });
-      const embed = new EmbedBuilder().setTitle('🚨 Reclamación').setDescription(`Hola <@${interaction.user.id}>, has abierto una reclamación para **${item.emoji} ${producto}**. Explica tu problema y el staff te ayudará.`).addFields({ name: '👤 Cliente', value: `<@${interaction.user.id}>`, inline: true }, { name: `${item.emoji} Producto`, value: `\`${producto}\``, inline: true }).setColor(0xfee75c).setTimestamp().setFooter({ text: 'BD Services' });
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`rec_resuelto:${producto}:${interaction.user.id}`).setLabel('✅ Resuelto').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`rec_reembolso:${producto}:${interaction.user.id}`).setLabel('🔄 Reembolso').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId(`ticket_cerrar:${interaction.user.id}`).setLabel('🔒 Cerrar').setStyle(ButtonStyle.Secondary),
-      );
-      await ticketChannel.send({ content: `<@${interaction.user.id}> | <@&${STAFF_ROLE_ID}>`, embeds: [embed], components: [row] });
-      await sendLog(LOG_RECLAMACIONES, modEmbed(0xfee75c, '🚨 Nueva reclamación', [{ name: `${item.emoji} Producto`, value: producto, inline: true }, { name: '👤 Cliente', value: `<@${interaction.user.id}>`, inline: true }, { name: '🕐 Fecha', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }]));
-      return;
-    }
+
   }
 
   if (!interaction.isButton()) return;
@@ -703,6 +765,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 
   if (accion === 'ticket_cerrar') return void cerrarCanal(new EmbedBuilder().setTitle('🔒 Ticket cerrado').setDescription(`Cerrado por <@${interaction.user.id}>. Eliminando en 5 segundos.`).setColor(0x99aab5).setTimestamp());
+
+  if (accion === 'ticket_transcript') {
+    return void interaction.reply({ content: '📄 Generando transcripción... (Funcionalidad de ejemplo)', ephemeral: true });
+  }
 
   if (accion === 'ticket_entregado') {
     if (!isStaff) return void interaction.reply({ content: '❌ Solo el staff.', ephemeral: true });
