@@ -2,9 +2,9 @@
   "name": "bd-bot",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
+  "main": "discord-bot/src/index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node artifacts/discord-bot/src/index.js"
   },
   "dependencies": {
     "discord.js": "^14.0.0",
