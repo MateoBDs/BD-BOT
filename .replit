@@ -52,4 +52,4 @@ localPort = 8081
 externalPort = 80
 
 [nix]
-packages = ["libfsm"]
+packages = ["libfsm", "lsof", "psmisc"]
