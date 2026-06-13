@@ -4,7 +4,7 @@
   "type": "module",
   "main": "discord-bot/src/index.js",
   "scripts": {
-    "start": "node artifacts/discord-bot/src/index.js"
+    "start": "pnpm --filter discord-bot start"
   },
   "dependencies": {
     "discord.js": "^14.0.0",
