@@ -9,5 +9,6 @@
   "dependencies": {
     "discord.js": "^14.0.0",
     "dotenv": "^16.0.0"
-  }
+  },
+  "packageManager": "pnpm@9.15.9"
 }
