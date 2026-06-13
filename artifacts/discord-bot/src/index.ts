@@ -598,8 +598,43 @@ client.on(Events.MessageCreate, async (message) => {
     if (!isStaffMember(member)) return;
     const channel = message.channel as TextChannel;
     const embed = new EmbedBuilder()
-      .setTitle('🎫 Abrir Ticket')
-      .setDescription('Selecciona una categoría en el menú desplegable para abrir un ticket de soporte.')
+      .setTitle('<:BD_Seguridad:1515288103793852447> ¿NECESITAS SOPORTE?')
+      .setDescription('
+**<:Usuario:1510405445682987070>  ¡Bienvenido al sistema de tickets de BD Developer!**
+
+Aquí podrás solicitar ayuda relacionada con nuestros servicios de desarrollo, reportar problemas, realizar compras o contactar con nuestro equipo de soporte.
+
+<:BD_Aviso:1515291008189993072> ** Por favor, selecciona la categoría correcta en el menú de abajo, de lo contrario tu ticket podría ser cerrado para mantener una mejor organización.
+**
+##  <a:Pincho:1515324119611211938>  Importante
+
+`🔹 Evita mencionar al staff innecesariamente.
+🔹 No abras tickets por pruebas o sin motivo válido.
+🔹 Explica tu problema de forma clara y detallada.
+🔹 El abuso del sistema de tickets puede resultar en sanciones.`
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+## 📂 Categorías Disponibles
+<:BD_Moderacion:1515290848105857046>  **Soporte General**
+
+¿Necesitas ayuda con alguno de nuestros servicios, bots o configuraciones? Nuestro equipo te asistirá lo antes posible.
+
+<:BD_Alerta:1515290217811021997>  **Reclamación**
+
+¿Has tenido algún problema con un servicio, pedido o atención recibida? Abre una reclamación y revisaremos tu caso.
+
+<:BD_Tienda:1515290896789278866>  **Compra**
+
+¿Quieres adquirir un bot, sistema, configuración o cualquier servicio de desarrollo? Selecciona esta opción para realizar tu compra.
+
+<:BD_Ban:1515292957664608357>  **Reportar Usuario**
+
+¿Algún usuario incumple las normas o está causando problemas dentro de la comunidad? Repórtalo aquí con las pruebas correspondientes.
+
+<:emoji_11:1452136550468026408>**  Alianza**
+
+¿Representas una comunidad o proyecto y deseas colaborar con BD Developer? Abre un ticket de alianza y hablaremos contigo..')
       .setColor(0x5865f2)
       .setFooter({ text: 'BD Services · Sistema de Tickets' });
 
