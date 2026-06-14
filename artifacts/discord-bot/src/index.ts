@@ -600,13 +600,13 @@ client.on(Events.MessageCreate, async (message) => {
     const embed = new EmbedBuilder()
       .setTitle('<:BD_Seguridad:1515288103793852447> ¿NECESITAS SOPORTE?')
       .setDescription(`
-**<:Usuario:1510405445682987070> ¡Bienvenido al sistema de tickets de BD Developer!**
+**<:BD_Usuario:1510405445682987070> ¡Bienvenido al sistema de tickets de BD Developer!**
 
 Aquí podrás solicitar ayuda relacionada con nuestros servicios de desarrollo, reportar problemas, realizar compras o contactar con nuestro equipo de soporte.
 
 <:BD_Aviso:1515291008189993072> **Por favor, selecciona la categoría correcta en el menú de abajo, de lo contrario tu ticket podría ser cerrado para mantener una mejor organización.**
 
-## <:Pincho:1515324119611211938> Importante
+## <a:Pincho:1515324119611211938> Importante
 
 🔹 Evita mencionar al staff innecesariamente.
 🔹 No abras tickets por pruebas o sin motivo válido.
