@@ -639,12 +639,12 @@ Aquí podrás solicitar ayuda relacionada con nuestros servicios de desarrollo, 
       .setCustomId('ticket_select')
       .setPlaceholder('Selecciona una categoría...')
       .addOptions(
-        new StringSelectMenuOptionBuilder().setLabel('Soporte General').setEmoji('🆘').setValue('soporte'),
-        new StringSelectMenuOptionBuilder().setLabel('Reclamación').setEmoji('🚨').setValue('reclamacion'),
-        new StringSelectMenuOptionBuilder().setLabel('Compra').setEmoji('🛒').setValue('compra'),
-        new StringSelectMenuOptionBuilder().setLabel('Reportar Usuario').setEmoji('👤').setValue('reporte'),
+        new StringSelectMenuOptionBuilder().setLabel('Soporte General').setEmoji('<:BD_Logo:1515294876713877687>').setValue('soporte'),
+        new StringSelectMenuOptionBuilder().setLabel('Reclamación').setEmoji('<:Alarma:1466443593198731297>').setValue('reclamacion'),
+        new StringSelectMenuOptionBuilder().setLabel('Compra').setEmoji('<:BD_Tienda:1515290896789278866>').setValue('compra'),
+        new StringSelectMenuOptionBuilder().setLabel('Reportar Usuario').setEmoji('<:Ban:1502584670640934982>').setValue('reporte'),
         new StringSelectMenuOptionBuilder().setLabel('Alianza').setEmoji('🤝').setValue('alianza'),
-        new StringSelectMenuOptionBuilder().setLabel('Apelación').setEmoji('⚖️').setValue('apelacion'),
+        new StringSelectMenuOptionBuilder().setLabel('Apelación').setEmoji('<:BD_Cargando:1515293582578417755>').setValue('apelacion'),
       );
 
     const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
